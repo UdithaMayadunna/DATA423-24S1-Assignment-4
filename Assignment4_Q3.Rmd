@@ -1,0 +1,138 @@
+---
+title: "Assignment4_Q3"
+output: html_document
+date: "2024-05-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load necessary libraries
+library(qicharts2)
+library(dplyr)
+library(lubridate)
+```
+
+```{r}
+# Read the CSV file
+data <- read.csv("monitor.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+# Convert Timestamp to Date object and add Day of the Year
+data$Timestamp <- as.POSIXct(data$Timestamp, format = "%Y-%m-%d %H:%M:%S")
+data$DayOfYear <- yday(data$Timestamp)
+data
+```
+
+The data is started from 1st February 2021, so the DayOfYear column starts withe the value of 32.
+
+## a) Is the memory usage of the server in control?
+
+```{r}
+a <- qicharts2::qic(x = DayOfYear, y = ProcessMemory, data = data, chart = "xbar", subtitle = "Experiment 1",freeze = 40)
+plot(a)
+```
+
+```{r}
+summary(a)
+```
+
+```{r}
+summary(a) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 1 and sigma.signal=15 of this xbar chart summary suggests that the mean has a problem.
+
+```{r}
+b <- qicharts2::qic(x = DayOfYear, y = ProcessMemory, data = data, chart = "s", subtitle = "Experiment 2",freeze = 40)
+plot(b)
+```
+
+```{r}
+summary(b)
+```
+
+```{r}
+summary(b) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 0 and sigma.signal=0 of this S chart summary suggests that the standard deviation doesn't have a problem.
+
+From the analysis of these plots, we can conclude that there is a noticeable drift in the mean, while the spread(standard deviation) remains stable. This indicates that the memory usage on the server is **not in control**.
+
+## b) Is the prediction time of the model in control?
+
+```{r}
+aa <- qicharts2::qic(x = DayOfYear, y = PredictionTimeMS, data = data, chart = "xbar", subtitle = "Experiment 3",freeze = 40)
+plot(aa)
+```
+
+```{r}
+summary(aa)
+```
+
+```{r}
+summary(aa) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 1 and sigma.signal=4 of this xbar chart summary suggests that the mean has a problem.
+
+```{r}
+bb <- qicharts2::qic(x = DayOfYear, y = PredictionTimeMS, data = data, chart = "s", subtitle = "Experiment 4",freeze = 40)
+plot(bb)
+```
+
+```{r}
+summary(bb)
+```
+
+```{r}
+summary(bb) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 1 and sigma.signal=14 of this S chart summary suggests that the standard deviation has a problem.
+
+From the analysis of these plots, we can conclude that there is a noticeable drift in the mean, and a noticeable drift in the spread(standard deviation) . This indicates that the prediction time of the model is **not in control**.
+
+## c) Is the stream of predictions in control?
+
+```{r}
+aaa <- qicharts2::qic(x = DayOfYear, y = Prediction, data = data, chart = "xbar", subtitle = "Experiment 5",freeze = 40)
+plot(aaa)
+```
+
+```{r}
+summary(aaa)
+```
+
+```{r}
+summary(aaa) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 1 and sigma.signal=0 of this xbar chart summary suggests that the mean has a problem. Here although the points are within the range, there is one instance where the longest run is greater than the longest run max.
+
+```{r}
+bbb <- qicharts2::qic(x = DayOfYear, y = Prediction, data = data, chart = "s", subtitle = "Experiment 6",freeze = 40)
+plot(bbb)
+```
+
+```{r}
+summary(bbb)
+```
+
+```{r}
+summary(bbb) %>%
+  select(runs.signal, sigma.signal)
+```
+
+The run.signal = 1 and sigma.signal=0 of this S chart summary suggests that the standard deviation has a problem. Here, although the points are within the range, there is one instance where the number of crossings are less than the minimum number of crossing value.
+
+From the analysis of these plots, we can conclude that there can be a drift in the mean, and a in the spread(standard deviation) . This indicates that the prediction time of the model is **not in control**.

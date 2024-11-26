@@ -1,0 +1,247 @@
+---
+title: "Assignment4_Q1_MLR3"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-05-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("C:/Users/udith/OneDrive/Desktop/UC Semester 2/Data423 Data Science in Industry/Assignment 04/Final")
+```
+
+This is an R-Markdown Notebook for classifying the Breast-Cancer data using caret
+
+## Environment
+
+First we shall load the necessary packages
+
+```{r}
+library(mlr3)
+library(mlr3learners)
+library(mlr3tuning)
+library(mlr3pipelines)
+library(mlr3filters)
+library(data.table)
+library(ggplot2)
+library(smotefamily)
+library(ggalluvial)
+library(rsample)
+# Set the seed for reproducibility
+set.seed(2024)
+```
+
+## Data
+
+We shall now load the data and summarize it
+
+```{r}
+data <- read.csv(file = "breast-cancer.csv", stringsAsFactors = TRUE)
+str(data)
+```
+
+## Summary of the data
+
+```{r}
+data <- as.data.table(data)
+
+# View the structure of the dataset
+str(data)
+summary(data)
+```
+
+## Identifying the target and ID variables.
+
+```{r}
+# Assuming 'diagnosis' is the target variable and 'id' is the ID variable
+data[, diagnosis := as.factor(diagnosis)]
+data[, id := NULL]
+```
+
+## Test/train
+
+We need to separate test from train as early as possible
+
+```{r}
+
+# Perform stratified splitting of the data into training and testing sets
+
+# Use rsample for stratified splitting
+split <- initial_split(data, prop = 0.7, strata = "diagnosis")
+train_data <- training(split)
+test_data <- testing(split)
+
+
+# Check the number of rows in train and test data
+cat("Number of rows in training data:", nrow(train_data), "\n")
+cat("Number of rows in testing data:", nrow(test_data), "\n")
+
+
+# Define tasks
+train_task <- TaskClassif$new(id = "train_task", backend = train_data, target = "diagnosis")
+test_task <- TaskClassif$new(id = "test_task", backend = test_data, target = "diagnosis")
+
+# Check the tasks
+train_task
+test_task
+```
+
+## Preprocessing
+
+The recipe will be as follows:
+
+-   diagnosis is the target
+-   up-sample the minority class
+-   normalise the numeric predictors
+-   experiment with dimensional reduction with pca
+
+## Modeling (SVM)
+
+This preprocessing can be used with an SVMRadial method
+
+```{r}
+
+
+#Define the SMOTE pipeline
+po_smote <- po("smote", K = 5)
+
+# Normalize the predictor data
+po_scale <- po("scale")
+
+# Dimensional reduction (using PCA with tuning)
+po_pca <- po("pca", center = TRUE)
+
+# Define the learner with predict_type set to "prob"
+learner <- lrn("classif.svm", kernel = "radial", type = "C-classification", predict_type = "prob")
+```
+
+```{r}
+# Combine the pipeline
+graph <-  po_smote %>>% po_scale %>>% po_pca %>>%  learner
+graph_learner <- GraphLearner$new(graph)
+
+```
+
+```{r}
+# Define the resampling strategy
+resampling <- rsmp("cv", folds = 10)
+
+```
+
+```{r}
+# Define the search space for tuning
+search_space <- ps(
+  pca.rank. = p_int(lower = 1, upper = ncol(train_data) - 1),
+  classif.svm.cost = p_dbl(lower = 0.001, upper = 10),
+  classif.svm.gamma = p_dbl(lower = 0.001, upper = 1)
+)
+```
+
+```{r}
+# Define the tuning instance
+tune_instance <- TuningInstanceSingleCrit$new(
+  task = train_task,
+  learner = graph_learner,
+  resampling = resampling,
+  measure = msr("classif.auc"),
+  search_space = search_space,
+  terminator = trm("evals", n_evals = 20)
+)
+
+```
+
+```{r}
+# Tune the pipeline
+tuner <- tnr("grid_search", resolution = 10)
+tuner$optimize(tune_instance)
+```
+
+```{r}
+# Retrieve the best hyperparameters
+best_params <- tune_instance$result_learner_param_vals
+graph_learner$param_set$values <- best_params
+
+```
+
+```{r}
+best_params
+```
+
+```{r}
+# Train the final model
+graph_learner$train(train_task)
+```
+
+```{r}
+# Make predictions on the test set
+predictions <- graph_learner$predict(test_task)
+```
+
+```{r}
+# Generate a confusion matrix
+conf_matrix <- predictions$confusion
+
+```
+
+```{r}
+# Convert the confusion matrix to a suitable format for ggplot2
+conf_matrix_df <- as.data.table(as.table(conf_matrix))
+setnames(conf_matrix_df, c("Prediction", "Truth", "N"))
+```
+
+```{r}
+# Print the confusion matrix
+print(conf_matrix)
+```
+
+```{r}
+# Visualize the confusion matrix
+ggplot(conf_matrix_df, aes(x = Prediction, y = Truth, fill = N)) +
+  geom_tile() +
+  geom_text(aes(label = N), color = "black") +
+  scale_fill_gradient(low = "white", high = "blue") +
+  theme_minimal() +
+  labs(title = "Confusion Matrix", x = "Predicted Class", y = "True Class")
+```
+
+```{r}
+# Calculate additional metrics
+measure_list <- list(
+  msr("classif.precision"),
+  msr("classif.recall"),
+  msr("classif.fbeta"),
+  msr("classif.auc"),
+  msr("classif.acc"),
+  msr("classif.sensitivity"),
+  msr("classif.specificity")
+)
+
+# Calculate metrics
+metrics <- sapply(measure_list, function(m) m$score(predictions))
+names(metrics) <- sapply(measure_list, function(m) m$id)
+
+# Convert the matrix to a data frame
+metrics_df <- as.data.frame(t(metrics))
+
+# Print the data frame
+print(metrics_df)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(as.table(conf_matrix))
+conf_matrix_df$missclassified <- conf_matrix_df$response != conf_matrix_df$truth
+conf_matrix_df$missclassified <- as.factor(conf_matrix_df$missclassified)
+
+ggplot(data = conf_matrix_df, mapping = aes(y = Freq, axis1 = response, axis2 = truth, label = after_stat(stratum))) +
+  ggalluvial::geom_alluvium(aes(fill = missclassified, colour = missclassified), show.legend = TRUE) +
+  ggalluvial::geom_stratum(width = 0.2) +
+  geom_text(stat = "stratum", reverse = TRUE) +
+  scale_x_discrete(limits = c("Prediction", "Actual"), expand = c(0.0, 0.0)) +
+  ggtitle("Classification of Breast-cancer diagnoses") +
+  scale_fill_manual(values = c("green","red")) +
+  theme_bw()
+```
